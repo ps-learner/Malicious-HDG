@@ -21,7 +21,6 @@ def make_fake_snapshot(num_domains=20, num_ip=10):
     data["domain", "shares_nameserver", "nameserver"].edge_index = shares_ns
     data["domain", "registered_by", "registrar"].edge_index = registered_by
     data["ip", "belongs_to_asn", "asn"].edge_index = belongs_asn
-
     data["ip", "rev_resolves_to", "domain"].edge_index = resolves_to.flip(0)
     data["nameserver", "rev_shares_nameserver", "domain"].edge_index = shares_ns.flip(0)
     data["registrar", "rev_registered_by", "domain"].edge_index = registered_by.flip(0)
@@ -29,8 +28,9 @@ def make_fake_snapshot(num_domains=20, num_ip=10):
     return data
 
 snapshots = [make_fake_snapshot() for _ in range(3)]
+domain_snapshot_id = torch.randint(0, 3, (20,))   # each fake domain assigned to one of 3 snapshots
 model = FullModel(hidden_dim=32)
-out = model(snapshots)
+out = model(snapshots, domain_snapshot_id)
 print("Output shape:", out.shape)
 assert not torch.isnan(out).any()
 print("PASSED")

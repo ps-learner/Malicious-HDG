@@ -70,4 +70,9 @@ for snap_id, group in domains.groupby("snapshot_id"):
     pd.DataFrame(registered_by).drop_duplicates().to_csv(out_dir / "edges_registered_by.csv", index=False)
     pd.DataFrame(belongs_asn).drop_duplicates().to_csv(out_dir / "edges_belongs_asn.csv", index=False)
 
+domains["node_id"] = domains["domain"].map(domain_id)
+domains[["node_id", "snapshot_id"]].drop_duplicates("node_id").sort_values("node_id").to_csv(
+    "data_processed/graphs/domain_snapshot_id.csv", index=False)
+print("Saved domain_snapshot_id.csv")
+
 print(f"Built {len(weeks)} snapshots")

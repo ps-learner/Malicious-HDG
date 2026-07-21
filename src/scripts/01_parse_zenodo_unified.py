@@ -165,8 +165,8 @@ def parse_file(path, label, sample_size):
                 })
     return domain_rows, dns_rows, whois_rows, asn_rows
 
-SAMPLE_MALICIOUS = 5000
-SAMPLE_BENIGN = 5000
+SAMPLE_MALICIOUS = 15000
+SAMPLE_BENIGN = 15000
 
 mal = parse_file("data_raw/zenodo/malware.json", "malicious", SAMPLE_MALICIOUS)
 ben = parse_file("data_raw/zenodo/benign_umbrella.json", "benign", SAMPLE_BENIGN)

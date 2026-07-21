@@ -5,6 +5,17 @@ from torch_geometric.nn import HeteroConv, SAGEConv
 NODE_TYPES = ["domain", "ip", "nameserver", "registrar", "asn"]
 IN_DIMS = {"domain": 8, "ip": 2, "nameserver": 1, "registrar": 1, "asn": 1}
 
+ALL_RELATIONS = {
+    ("domain", "resolves_to", "ip"),
+    ("domain", "shares_nameserver", "nameserver"),
+    ("domain", "registered_by", "registrar"),
+    ("ip", "belongs_to_asn", "asn"),
+    ("ip", "rev_resolves_to", "domain"),
+    ("nameserver", "rev_shares_nameserver", "domain"),
+    ("registrar", "rev_registered_by", "domain"),
+    ("asn", "rev_belongs_to_asn", "ip"),
+}
+
 class FeatureProjection(nn.Module):
     def __init__(self, hidden_dim):
         super().__init__()
@@ -15,14 +26,8 @@ class FeatureProjection(nn.Module):
     def forward(self, x_dict):
         return {nt: torch.relu(self.proj[nt](x)) for nt, x in x_dict.items()}
 
-def make_hetero_layer(hidden_dim):
-    return HeteroConv({
-        ("domain", "resolves_to", "ip"): SAGEConv((-1, -1), hidden_dim),
-        ("domain", "shares_nameserver", "nameserver"): SAGEConv((-1, -1), hidden_dim),
-        ("domain", "registered_by", "registrar"): SAGEConv((-1, -1), hidden_dim),
-        ("ip", "belongs_to_asn", "asn"): SAGEConv((-1, -1), hidden_dim),
-        ("ip", "rev_resolves_to", "domain"): SAGEConv((-1, -1), hidden_dim),
-        ("nameserver", "rev_shares_nameserver", "domain"): SAGEConv((-1, -1), hidden_dim),
-        ("registrar", "rev_registered_by", "domain"): SAGEConv((-1, -1), hidden_dim),
-        ("asn", "rev_belongs_to_asn", "ip"): SAGEConv((-1, -1), hidden_dim),
-    }, aggr="mean")
+def make_hetero_layer(hidden_dim, relations=None):
+    if relations is None:
+        relations = ALL_RELATIONS
+    conv_dict = {rel: SAGEConv((-1, -1), hidden_dim) for rel in relations}
+    return HeteroConv(conv_dict, aggr="mean")
