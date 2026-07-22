@@ -4,4 +4,4 @@ __pycache__/
 data_raw/
 data_processed/
 models/checkpoints/
-*.pt
+*.ptresults_paper_ready.zip
