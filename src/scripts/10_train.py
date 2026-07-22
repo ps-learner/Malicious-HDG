@@ -35,7 +35,7 @@ model = FullModel(hidden_dim=64, dropout=0.3).to(DEVICE)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 loss_fn = nn.CrossEntropyLoss()
 
-MAX_EPOCHS = 100
+MAX_EPOCHS = 1000
 PATIENCE = 10
 best_val_f1 = -1
 epochs_no_improve = 0
