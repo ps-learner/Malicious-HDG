@@ -11,8 +11,8 @@ from sklearn.metrics import f1_score, roc_auc_score
 torch.manual_seed(42)
 np.random.seed(42)
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print("Using device:", DEVICE)
+DEVICE = torch.device("cpu")
+print("Sanity check running on:", DEVICE)
 
 snapshot_files = sorted(Path("data_processed/graphs").glob("snapshot_*.pt"),
                          key=lambda p: int(p.stem.split("_")[1]))
@@ -35,20 +35,14 @@ model = FullModel(hidden_dim=64, dropout=0.3).to(DEVICE)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
 loss_fn = nn.CrossEntropyLoss()
 
-MAX_EPOCHS = 100
-PATIENCE = 10
-best_val_f1 = -1
-epochs_no_improve = 0
-
-Path("models/checkpoints").mkdir(parents=True, exist_ok=True)
+SANITY_EPOCHS = 20
 Path("results/logs").mkdir(parents=True, exist_ok=True)
+log_path = "results/logs/cpu_sanity_log.csv"
 
-log_path = "results/logs/train_log.csv"
 with open(log_path, "w", newline="") as f:
     csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "val_f1", "val_auc"])
 
-epoch = 0
-for epoch in range(MAX_EPOCHS):
+for epoch in range(SANITY_EPOCHS):
     model.train()
     optimizer.zero_grad()
     out = model(snapshots, domain_snapshot_id)
@@ -60,9 +54,9 @@ for epoch in range(MAX_EPOCHS):
     with torch.no_grad():
         out_val = model(snapshots, domain_snapshot_id)
         val_loss = loss_fn(out_val[val_idx], y[val_idx]).item()
-        val_probs = torch.softmax(out_val[val_idx], dim=1)[:, 1].cpu().numpy()
-        val_preds = out_val[val_idx].argmax(dim=1).cpu().numpy()
-        val_true = y[val_idx].cpu().numpy()
+        val_probs = torch.softmax(out_val[val_idx], dim=1)[:, 1].numpy()
+        val_preds = out_val[val_idx].argmax(dim=1).numpy()
+        val_true = y[val_idx].numpy()
         val_f1 = f1_score(val_true, val_preds, zero_division=0)
         try:
             val_auc = roc_auc_score(val_true, val_probs)
@@ -70,29 +64,7 @@ for epoch in range(MAX_EPOCHS):
             val_auc = float("nan")
 
     print(f"epoch {epoch}: train_loss={train_loss.item():.4f} val_loss={val_loss:.4f} val_f1={val_f1:.4f} val_auc={val_auc:.4f}")
-
     with open(log_path, "a", newline="") as f:
         csv.writer(f).writerow([epoch, train_loss.item(), val_loss, val_f1, val_auc])
 
-    if val_f1 > best_val_f1:
-        best_val_f1 = val_f1
-        epochs_no_improve = 0
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "best_val_f1": best_val_f1,
-        }, "models/checkpoints/best_model.pt")
-    else:
-        epochs_no_improve += 1
-        if epochs_no_improve >= PATIENCE:
-            print(f"Early stopping at epoch {epoch}, best val F1 = {best_val_f1:.4f}")
-            break
-
-torch.save({
-    "epoch": epoch,
-    "model_state_dict": model.state_dict(),
-    "optimizer_state_dict": optimizer.state_dict(),
-}, "models/checkpoints/last_model.pt")
-
-print("Training complete. Best val F1:", best_val_f1)
+print("CPU sanity check complete.")

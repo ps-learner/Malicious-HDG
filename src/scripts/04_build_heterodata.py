@@ -4,15 +4,27 @@ from torch_geometric.data import HeteroData
 from pathlib import Path
 from pandas.errors import EmptyDataError
 
-def load_node_features(name, feature_cols):
+def load_node_features(name, feature_cols, log_scale_cols=None):
     df = pd.read_csv(f"data_processed/graphs/nodes_{name}.csv").sort_values("node_id")
-    return torch.tensor(df[feature_cols].values, dtype=torch.float)
+    log_scale_cols = log_scale_cols or []
+    data = df[feature_cols].copy().astype(float)
+    for col in log_scale_cols:
+        data[col] = torch.log1p(torch.tensor(data[col].values, dtype=torch.float)).numpy()
+    # z-score standardize every column (safe for binary 0/1 flags too — just low variance)
+    for col in data.columns:
+        std = data[col].std()
+        mean = data[col].mean()
+        if std > 1e-8:
+            data[col] = (data[col] - mean) / std
+        else:
+            data[col] = data[col] - mean
+    return torch.tensor(data.values, dtype=torch.float)
 
 domain_x = load_node_features("domain", ["length", "num_labels", "tld_com", "tld_net", "tld_org", "tld_other", "nxdomain", "has_tls"])
-ip_x = load_node_features("ip", ["ip_version", "fanin"])
-ns_x = load_node_features("nameserver", ["fanin"])
-reg_x = load_node_features("registrar", ["fanin"])
-asn_x = load_node_features("asn", ["fanin"])
+ip_x = load_node_features("ip", ["ip_version", "fanin"], log_scale_cols=["fanin"])
+ns_x = load_node_features("nameserver", ["fanin"], log_scale_cols=["fanin"])
+reg_x = load_node_features("registrar", ["fanin"], log_scale_cols=["fanin"])
+asn_x = load_node_features("asn", ["fanin"], log_scale_cols=["fanin"])
 
 snapshot_dirs = sorted(
     [p for p in Path("data_processed/graphs").glob("snapshot_*") if p.is_dir()],

@@ -26,7 +26,9 @@ dns["aaaa_records"] = dns["aaaa_records"].apply(parse_list_field)
 dns["ns_records"] = dns["ns_records"].apply(parse_list_field)
 
 def save_id_map(values, name):
-    unique_sorted = sorted(set(values))
+    # Force every value to string BEFORE building the map, so in-memory dict
+    # and the JSON file on disk always agree on key type.
+    unique_sorted = sorted(set(str(v) for v in values))
     id_map = {v: i for i, v in enumerate(unique_sorted)}
     with open(f"data_processed/id_maps/{name}_id_map.json", "w") as f:
         json.dump(id_map, f)
@@ -61,7 +63,7 @@ pd.DataFrame(domain_feats).to_csv("data_processed/graphs/nodes_domain.csv", inde
 ip_fanin = {}
 for _, row in dns.iterrows():
     for ip in row["a_records"] + row["aaaa_records"]:
-        ip_fanin[ip] = ip_fanin.get(ip, 0) + 1
+        ip_fanin[str(ip)] = ip_fanin.get(str(ip), 0) + 1
 ip_id_map = save_id_map(ip_fanin.keys(), "ip")
 ip_feats = [{"node_id": iid, "ip": ip, "ip_version": 6 if ":" in ip else 4, "fanin": ip_fanin[ip]} for ip, iid in ip_id_map.items()]
 pd.DataFrame(ip_feats).to_csv("data_processed/graphs/nodes_ip.csv", index=False)
@@ -69,17 +71,21 @@ pd.DataFrame(ip_feats).to_csv("data_processed/graphs/nodes_ip.csv", index=False)
 ns_fanin = {}
 for _, row in dns.iterrows():
     for ns in row["ns_records"]:
-        ns_fanin[ns] = ns_fanin.get(ns, 0) + 1
+        ns_fanin[str(ns)] = ns_fanin.get(str(ns), 0) + 1
 ns_id_map = save_id_map(ns_fanin.keys(), "nameserver")
 ns_feats = [{"node_id": nid, "nameserver": ns, "fanin": ns_fanin[ns]} for ns, nid in ns_id_map.items()]
 pd.DataFrame(ns_feats).to_csv("data_processed/graphs/nodes_nameserver.csv", index=False)
 
-reg_counts = whois.dropna(subset=["registrar"])["registrar"].value_counts().to_dict()
+reg_counts = {}
+for r in whois.dropna(subset=["registrar"])["registrar"]:
+    reg_counts[str(r)] = reg_counts.get(str(r), 0) + 1
 reg_id_map = save_id_map(reg_counts.keys(), "registrar")
 reg_feats = [{"node_id": rid, "registrar": r, "fanin": reg_counts[r]} for r, rid in reg_id_map.items()]
 pd.DataFrame(reg_feats).to_csv("data_processed/graphs/nodes_registrar.csv", index=False)
 
-asn_counts = asn.dropna(subset=["asn"])["asn"].value_counts().to_dict()
+asn_counts = {}
+for a in asn.dropna(subset=["asn"])["asn"]:
+    asn_counts[str(a)] = asn_counts.get(str(a), 0) + 1
 asn_id_map = save_id_map(asn_counts.keys(), "asn")
 asn_feats = [{"node_id": aid, "asn": a, "fanin": asn_counts[a]} for a, aid in asn_id_map.items()]
 pd.DataFrame(asn_feats).to_csv("data_processed/graphs/nodes_asn.csv", index=False)
