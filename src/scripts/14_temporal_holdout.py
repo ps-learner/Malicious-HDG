@@ -43,11 +43,11 @@ test_idx = torch.tensor(temporal_test_ids, dtype=torch.long).to(DEVICE)
 torch.manual_seed(42)
 np.random.seed(42)
 model = FullModel(hidden_dim=64, dropout=0.3).to(DEVICE)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-5)
 loss_fn = nn.CrossEntropyLoss()
 
 MAX_EPOCHS = 1000
-PATIENCE = 15
+PATIENCE = 60
 best_f1 = -1
 epochs_no_improve = 0
 
