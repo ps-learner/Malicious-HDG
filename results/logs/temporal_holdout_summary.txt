@@ -1,4 +1,5 @@
 Holdout snapshots: [1, 4]
-Train size: 17144, Test size: 12856
-Best F1: 0.8483
-Final AUC: 0.9375
+Train size: 14572, Val size: 2572, Test size: 12856
+Best VAL F1 (checkpoint selection): 0.9545
+Test F1 (touched once): 0.8402
+Test AUC: 0.9257
