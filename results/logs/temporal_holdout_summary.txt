@@ -1,0 +1,4 @@
+Holdout snapshots: [1, 4]
+Train size: 17144, Test size: 12856
+Best F1: 0.8483
+Final AUC: 0.9375
