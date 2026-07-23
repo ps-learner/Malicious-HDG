@@ -32,12 +32,20 @@ snap_counts = snap_assign["snapshot_id"].value_counts()
 largest_two = snap_counts.nlargest(2).index.tolist()
 holdout_ids = set(snap_assign[snap_assign["snapshot_id"].isin(largest_two)]["node_id"])
 
-temporal_train_ids = list(all_ids - holdout_ids)
+temporal_train_pool = list(all_ids - holdout_ids)
 temporal_test_ids = list(holdout_ids & all_ids)
+
+from sklearn.model_selection import train_test_split
+train_pool_labels = labels.set_index("node_id").loc[temporal_train_pool, "y"].values
+temporal_train_ids, temporal_val_ids = train_test_split(
+    temporal_train_pool, test_size=0.15, stratify=train_pool_labels, random_state=42
+)
+
 print(f"Holdout snapshots: {largest_two}")
-print(f"Temporal train size: {len(temporal_train_ids)}, holdout test size: {len(temporal_test_ids)}")
+print(f"Temporal train size: {len(temporal_train_ids)}, val size: {len(temporal_val_ids)}, holdout test size: {len(temporal_test_ids)}")
 
 train_idx = torch.tensor(temporal_train_ids, dtype=torch.long).to(DEVICE)
+val_idx = torch.tensor(temporal_val_ids, dtype=torch.long).to(DEVICE)
 test_idx = torch.tensor(temporal_test_ids, dtype=torch.long).to(DEVICE)
 
 torch.manual_seed(42)
@@ -57,7 +65,7 @@ Path("models/checkpoints").mkdir(parents=True, exist_ok=True)
 
 log_path = "results/logs/temporal_holdout_log.csv"
 with open(log_path, "w", newline="") as f:
-    csv.writer(f).writerow(["epoch", "train_loss", "test_loss", "test_f1", "test_auc"])
+    csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "val_f1", "val_auc"])
 
 epoch = 0
 for epoch in range(MAX_EPOCHS):
@@ -70,43 +78,54 @@ for epoch in range(MAX_EPOCHS):
 
     model.eval()
     with torch.no_grad():
-        out_test = model(snapshots, domain_snapshot_id)
-        test_loss = loss_fn(out_test[test_idx], y[test_idx]).item()
-        test_probs = torch.softmax(out_test[test_idx], dim=1)[:, 1].cpu().numpy()
-        test_preds = out_test[test_idx].argmax(dim=1).cpu().numpy()
-        test_true = y[test_idx].cpu().numpy()
-        test_f1 = f1_score(test_true, test_preds, zero_division=0)
+        out_val = model(snapshots, domain_snapshot_id)
+        val_loss = loss_fn(out_val[val_idx], y[val_idx]).item()
+        val_probs = torch.softmax(out_val[val_idx], dim=1)[:, 1].cpu().numpy()
+        val_preds = out_val[val_idx].argmax(dim=1).cpu().numpy()
+        val_true = y[val_idx].cpu().numpy()
+        val_f1 = f1_score(val_true, val_preds, zero_division=0)
         try:
-            test_auc = roc_auc_score(test_true, test_probs)
+            val_auc = roc_auc_score(val_true, val_probs)
         except ValueError:
-            test_auc = float("nan")
+            val_auc = float("nan")
 
     if epoch % 20 == 0:
-        print(f"epoch {epoch}: train_loss={train_loss.item():.4f} test_loss={test_loss:.4f} test_f1={test_f1:.4f} test_auc={test_auc:.4f}")
+        print(f"epoch {epoch}: train_loss={train_loss.item():.4f} val_loss={val_loss:.4f} val_f1={val_f1:.4f} val_auc={val_auc:.4f}")
 
     with open(log_path, "a", newline="") as f:
-        csv.writer(f).writerow([epoch, train_loss.item(), test_loss, test_f1, test_auc])
+        csv.writer(f).writerow([epoch, train_loss.item(), val_loss, val_f1, val_auc])
 
-    if test_f1 > best_f1:
-        best_f1 = test_f1
+    if val_f1 > best_f1:
+        best_f1 = val_f1
         epochs_no_improve = 0
-        torch.save({"epoch": epoch, "model_state_dict": model.state_dict(), "best_f1": best_f1},
-                   "models/checkpoints/best_model_temporal_holdout.pt")
-        best_preds, best_probs, best_true = test_preds.copy(), test_probs.copy(), test_true.copy()
+        best_state = {k: v.clone() for k, v in model.state_dict().items()}
     else:
         epochs_no_improve += 1
         if epochs_no_improve >= PATIENCE:
-            print(f"Early stopping at epoch {epoch}, best holdout F1 = {best_f1:.4f}")
+            print(f"Early stopping at epoch {epoch}, best VAL F1 = {best_f1:.4f}")
             break
 
-final_auc = roc_auc_score(best_true, best_probs)
-print(f"\nFinal temporal holdout results: F1={best_f1:.4f}, AUC={final_auc:.4f}")
+model.load_state_dict(best_state)
+torch.save({"model_state_dict": best_state, "best_val_f1": best_f1},
+           "models/checkpoints/best_model_temporal_holdout.pt")
+
+model.eval()
+with torch.no_grad():
+    out_test = model(snapshots, domain_snapshot_id)
+    test_probs = torch.softmax(out_test[test_idx], dim=1)[:, 1].cpu().numpy()
+    test_preds = out_test[test_idx].argmax(dim=1).cpu().numpy()
+    test_true = y[test_idx].cpu().numpy()
+
+test_f1 = f1_score(test_true, test_preds, zero_division=0)
+test_auc = roc_auc_score(test_true, test_probs)
+print(f"\nFinal temporal holdout results (test set touched once): F1={test_f1:.4f}, AUC={test_auc:.4f}")
 
 pd.DataFrame({
-    "node_id": temporal_test_ids, "pred": best_preds, "prob": best_probs, "true": best_true
+    "node_id": temporal_test_ids, "pred": test_preds, "prob": test_probs, "true": test_true
 }).to_csv("results/tables/temporal_holdout_predictions.csv", index=False)
 
 with open("results/logs/temporal_holdout_summary.txt", "w") as f:
     f.write(f"Holdout snapshots: {largest_two}\n")
-    f.write(f"Train size: {len(temporal_train_ids)}, Test size: {len(temporal_test_ids)}\n")
-    f.write(f"Best F1: {best_f1:.4f}\nFinal AUC: {final_auc:.4f}\n")
+    f.write(f"Train size: {len(temporal_train_ids)}, Val size: {len(temporal_val_ids)}, Test size: {len(temporal_test_ids)}\n")
+    f.write(f"Best VAL F1 (checkpoint selection): {best_f1:.4f}\n")
+    f.write(f"Test F1 (touched once): {test_f1:.4f}\nTest AUC: {test_auc:.4f}\n")
