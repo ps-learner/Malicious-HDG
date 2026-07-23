@@ -8,9 +8,6 @@ sys.path.append(os.getcwd())
 from models.full_model import FullModel
 from sklearn.metrics import f1_score, roc_auc_score
 
-torch.manual_seed(42)
-np.random.seed(42)
-
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print("Using device:", DEVICE)
 
@@ -31,68 +28,74 @@ def load_split(name):
 train_idx = torch.tensor(load_split("train"), dtype=torch.long).to(DEVICE)
 val_idx = torch.tensor(load_split("val"), dtype=torch.long).to(DEVICE)
 
-model = FullModel(hidden_dim=64, dropout=0.3).to(DEVICE)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
-loss_fn = nn.CrossEntropyLoss()
-
 MAX_EPOCHS = 1000
 PATIENCE = 10
-best_val_f1 = -1
-epochs_no_improve = 0
 
 Path("models/checkpoints").mkdir(parents=True, exist_ok=True)
 Path("results/logs").mkdir(parents=True, exist_ok=True)
 
-log_path = "results/logs/train_log.csv"
-with open(log_path, "w", newline="") as f:
-    csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "val_f1", "val_auc"])
+SEEDS = [42, 123, 2024]
+summary_rows = []
 
-epoch = 0
-for epoch in range(MAX_EPOCHS):
-    model.train()
-    optimizer.zero_grad()
-    out = model(snapshots, domain_snapshot_id)
-    train_loss = loss_fn(out[train_idx], y[train_idx])
-    train_loss.backward()
-    optimizer.step()
+for seed in SEEDS:
+    print(f"\n=== Training seed {seed} ===")
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
-    model.eval()
-    with torch.no_grad():
-        out_val = model(snapshots, domain_snapshot_id)
-        val_loss = loss_fn(out_val[val_idx], y[val_idx]).item()
-        val_probs = torch.softmax(out_val[val_idx], dim=1)[:, 1].cpu().numpy()
-        val_preds = out_val[val_idx].argmax(dim=1).cpu().numpy()
-        val_true = y[val_idx].cpu().numpy()
-        val_f1 = f1_score(val_true, val_preds, zero_division=0)
-        try:
-            val_auc = roc_auc_score(val_true, val_probs)
-        except ValueError:
-            val_auc = float("nan")
+    model = FullModel(hidden_dim=64, dropout=0.3).to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    loss_fn = nn.CrossEntropyLoss()
 
-    print(f"epoch {epoch}: train_loss={train_loss.item():.4f} val_loss={val_loss:.4f} val_f1={val_f1:.4f} val_auc={val_auc:.4f}")
+    best_val_f1 = -1
+    epochs_no_improve = 0
 
-    with open(log_path, "a", newline="") as f:
-        csv.writer(f).writerow([epoch, train_loss.item(), val_loss, val_f1, val_auc])
+    log_path = f"results/logs/train_log_seed{seed}.csv"
+    with open(log_path, "w", newline="") as f:
+        csv.writer(f).writerow(["epoch", "train_loss", "val_loss", "val_f1", "val_auc"])
 
-    if val_f1 > best_val_f1:
-        best_val_f1 = val_f1
-        epochs_no_improve = 0
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "best_val_f1": best_val_f1,
-        }, "models/checkpoints/best_model.pt")
-    else:
-        epochs_no_improve += 1
-        if epochs_no_improve >= PATIENCE:
-            print(f"Early stopping at epoch {epoch}, best val F1 = {best_val_f1:.4f}")
-            break
+    epoch = 0
+    for epoch in range(MAX_EPOCHS):
+        model.train()
+        optimizer.zero_grad()
+        out = model(snapshots, domain_snapshot_id)
+        train_loss = loss_fn(out[train_idx], y[train_idx])
+        train_loss.backward()
+        optimizer.step()
 
-torch.save({
-    "epoch": epoch,
-    "model_state_dict": model.state_dict(),
-    "optimizer_state_dict": optimizer.state_dict(),
-}, "models/checkpoints/last_model.pt")
+        model.eval()
+        with torch.no_grad():
+            out_val = model(snapshots, domain_snapshot_id)
+            val_loss = loss_fn(out_val[val_idx], y[val_idx]).item()
+            val_probs = torch.softmax(out_val[val_idx], dim=1)[:, 1].cpu().numpy()
+            val_preds = out_val[val_idx].argmax(dim=1).cpu().numpy()
+            val_true = y[val_idx].cpu().numpy()
+            val_f1 = f1_score(val_true, val_preds, zero_division=0)
+            try:
+                val_auc = roc_auc_score(val_true, val_probs)
+            except ValueError:
+                val_auc = float("nan")
 
-print("Training complete. Best val F1:", best_val_f1)
+        if epoch % 20 == 0:
+            print(f"epoch {epoch}: train_loss={train_loss.item():.4f} val_loss={val_loss:.4f} val_f1={val_f1:.4f} val_auc={val_auc:.4f}")
+
+        with open(log_path, "a", newline="") as f:
+            csv.writer(f).writerow([epoch, train_loss.item(), val_loss, val_f1, val_auc])
+
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
+            epochs_no_improve = 0
+            torch.save({
+                "epoch": epoch, "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(), "best_val_f1": best_val_f1,
+            }, f"models/checkpoints/best_model_seed{seed}.pt")
+        else:
+            epochs_no_improve += 1
+            if epochs_no_improve >= PATIENCE:
+                print(f"Early stopping at epoch {epoch}, best val F1 = {best_val_f1:.4f}")
+                break
+
+    summary_rows.append({"seed": seed, "best_val_f1": best_val_f1, "epochs_trained": epoch + 1})
+
+pd.DataFrame(summary_rows).to_csv("results/logs/multiseed_summary.csv", index=False)
+print("\nAll seeds complete:")
+print(pd.DataFrame(summary_rows))
