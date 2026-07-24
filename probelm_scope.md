@@ -268,3 +268,15 @@ One note: the full_model here (F1=0.920) is noticeably below your actual best fu
 | Leakage: split overlap                      | 0 across all pairs                                          |
 | Leakage: shared infrastructure              | IP 0.02%, NS 0.01%, Registrar 0.38% (28-snapshot aggregate) |
 | Class balance                               | 51%/49%                                                     |
+
+14) This is an important discovery — and it changes the story significantly. The NaN AUC values aren't a bug; they're correctly reporting that AUC is mathematically undefined, because every single snapshot from 12 onward contains only malicious domains (class=1), with zero benign domains present.
+
+Why this matters — and it's bigger than just "AUC is NaN"
+This isn't just a metric-reporting issue. Since these test snapshots are 100% malicious with no benign domains at all, your F1 scores in the rolling-origin table are only measuring recall on malicious domains — how many true malicious domains the model correctly caught. They tell you nothing about false positives (how many benign domains the model would have wrongly flagged as malicious), because there are no benign domains in these windows to test that at all.
+
+This means the seemingly strong F1 scores (0.83–0.95) in your rolling-origin results are systematically optimistic in a specific way: a model that just predicted "malicious" for everything in these snapshots would score very well on F1 too, since there's no benign class present to expose false positives. This is a real methodological limitation in your temporal generalization evidence, and it needs to be reported honestly rather than presented as strong evidence of balanced generalization.
+
+Why is this happening — likely explanation
+Your dataset's snapshot construction (from 03_build_edges_snapshots.py and the reservoir sampling fix in 01_parse_zenodo_unified.py) appears to place almost all benign domains into the earliest snapshots (1–11), while later snapshots (12–27) are dominated or exclusively populated by malicious domains — likely reflecting how malicious domains are typically discovered/added continuously over time in threat intelligence feeds, while your benign domain list was a static one-time snapshot at the start.
+
+15) Report both numbers side by side as your core validity experiment: the snapshot-partitioned result (0.946 F1) as your primary architecture result, and the static-merged-graph result (0.909 F1) as a controlled ablation proving the model retains most of its discriminative power even when the temporal-segregation confound is fully removed. Frame this explicitly as evidence your model has learned genuine infrastructure-based signal, with the gap between the two numbers honestly reported as the upper bound of how much the snapshot structure could have inflated your headline result
